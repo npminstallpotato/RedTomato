@@ -1,0 +1,6 @@
+{
+  "defaultModel": "sonnet",
+  "defaultEffort": "max",
+  "permissionMode": "auto",
+  "projectDir": "model"
+}
