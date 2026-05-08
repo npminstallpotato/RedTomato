@@ -40,6 +40,7 @@
   "scripts": {
     "build": "tsc",
     "prepublishOnly": "npm run build",
+    "test": "echo 'See test.md for test spec'",
     "start": "tsx src/index.ts"
   },
   "devDependencies": {
