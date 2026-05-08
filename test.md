@@ -394,53 +394,6 @@
 
 ---
 
-## Module: CLI entry point
-
-### TC-CLI-1: Prints usage and exits 1 when no prompt given
-- **Steps:**
-  1. Run `npx tsx src/index.ts` (no args).
-- **Expected:** Stdout (or stderr) contains usage text. Exit code is 1.
-
-### TC-CLI-2: Reads positional arg as prompt
-- **Steps:**
-  1. Run `npx tsx src/index.ts "Hello world"`.
-- **Expected:** Response content is printed to stdout.
-
-### TC-CLI-3: Reads `--prompt` flag
-- **Steps:**
-  1. Run `npx tsx src/index.ts --prompt "Hello"`.
-- **Expected:** Response is printed.
-
-### TC-CLI-4: Reads `-p` flag
-- **Steps:**
-  1. Run `npx tsx src/index.ts -p "Hello"`.
-- **Expected:** Response is printed.
-
-### TC-CLI-5: `--model` flag is respected
-- **Steps:**
-  1. Run `npx tsx src/index.ts "hi" --model sonnet`.
-- **Expected:** Response is printed (model override works).
-
-### TC-CLI-6: `--effort` flag is respected
-- **Steps:**
-  1. Run `npx tsx src/index.ts "hi" --effort low`.
-- **Expected:** Response is printed.
-
-### TC-CLI-7: `--stream` flag enables streaming output
-- **Steps:**
-  1. Run `npx tsx src/index.ts "Count to 3" --stream`.
-- **Expected:** Output appears incrementally (not all at once at the end).
-
-### TC-CLI-8: `--max-budget-usd` flag is respected
-- **Steps:**
-  1. Run `npx tsx src/index.ts "hi" --max-budget-usd 0.01`.
-- **Expected:** Response is printed (budget constraint is applied).
-
-### TC-CLI-9: `--permission-mode` flag is respected
-- **Steps:**
-  1. Run `npx tsx src/index.ts "hi" --permission-mode auto`.
-- **Expected:** Response is printed.
-
 ---
 
 ## Module: Error Handling
@@ -449,7 +402,7 @@
 - **Description:** Sending an empty or whitespace-only prompt.
 - **Steps:**
   1. `new Tomato().ask({ prompt: "" })` or `new Tomato().ask({ prompt: "   " })`.
-- **Expected:** CLI may return an error or empty response — the wrapper should not crash.
+- **Expected:** Throws `Error("prompt is required")`.
 
 ### TC-ERR-2: Very long prompt
 - **Description:** A prompt exceeding typical length (e.g., 10,000+ characters).

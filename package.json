@@ -42,9 +42,9 @@
   },
   "scripts": {
     "build": "tsc",
-    "prepublishOnly": "npm run build",
-    "test": "echo 'See test.md for test spec'",
-    "start": "tsx src/index.ts"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run typecheck && npm run build",
+    "test": "echo 'See test.md for test spec'"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

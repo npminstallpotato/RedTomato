@@ -22,15 +22,9 @@ Programmatic TypeScript wrapper around the Claude Code CLI. Provides a `Tomato` 
 # Install dependencies
 npm install
 
-# Run the wrapper (CLI mode)
-npx tsx src/index.ts "your prompt"
-
-# Run with streaming
-npx tsx src/index.ts "your prompt" --stream
-
-# Run tests (see test.md for full test spec)
-npx tsx src/index.ts "Reply with exactly: OK"       # smoke test
-npx tsx src/index.ts "Count to 3" --stream           # stream test
+# Smoke test (programmatic API)
+npx tsx -e "import {Tomato} from './src/index.ts'; const t=new Tomato(); const r=await t.ask({prompt:'OK'}); console.log(r.content)"
+npx tsx -e "import {Tomato} from './src/index.ts'; for await (const c of new Tomato().ask({prompt:'Count to 3',stream:true})) process.stdout.write(c)"
 
 # Type-check
 npx tsc --noEmit
@@ -122,8 +116,7 @@ RedTomato/
 │       └── testing-code/
 │           └── SKILL.md    # Testing skill
 ├── CLAUDE.md               # This file
-├── DOC.md                  # Full API reference
-├── README.md               # Quick-start overview
+├── README.md               # Full API reference + quick-start
 ├── test.md                 # Test specification
 ├── package.json
 └── tsconfig.json

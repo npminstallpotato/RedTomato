@@ -1,7 +1,7 @@
 import { spawn, spawnSync, execSync } from "child_process";
 import { randomUUID } from "crypto";
 import { existsSync, mkdirSync, writeFileSync } from "fs";
-import { resolve, join } from "path";
+import { resolve, join, basename } from "path";
 import { createInterface } from "readline";
 
 // ─── Types ─────────────────────────────────────────────────────
@@ -72,7 +72,7 @@ function ensureModelDir(modelDir: string): void {
   if (!existsSync(mdPath)) {
     writeFileSync(
       mdPath,
-      `# ${modelDir.split("/").pop() || "model"}\n\nManaged by RedTomato Claude wrapper.\n`
+      `# ${basename(modelDir) || "model"}\n\nManaged by RedTomato Claude wrapper.\n`
     );
   }
 }
@@ -260,6 +260,9 @@ export class Tomato {
   ask(opts: ClaudeOptions & { stream: true }): AsyncGenerator<string, ClaudeResponse | void>;
   ask(opts: ClaudeOptions): Promise<ClaudeResponse>;
   ask(opts: ClaudeOptions): any {
+    if (!opts.prompt?.trim()) throw new Error("prompt is required");
+    if (opts.sync && opts.stream) throw new Error("sync and stream cannot both be true");
+
     const effectiveSessionId = opts.sessionId || randomUUID();
     const effectiveOpts: ClaudeOptions = { ...opts, sessionId: effectiveSessionId };
 
@@ -412,7 +415,7 @@ export class Tomato {
     if ((result.status ?? 1) !== 0 && !state.content) {
       if (useResume && opts.sessionId) {
         // Resume failed — session likely doesn't exist, retry with --session-id
-        return this.runSyncOnce(opts, false);
+        return this.runSyncOnce({ ...opts, signal: undefined }, false);
       }
       throw new Error(`claude failed: ${(result.stderr || "").trim() || `exit code ${result.status}`}`);
     }
@@ -450,13 +453,17 @@ export class Tomato {
 
     const rl = createInterface({ input: proc.stdout!, crlfDelay: Infinity });
 
+    let aborted = false;
+
     const cleanup = () => {
       if (opts.signal) opts.signal.removeEventListener("abort", abortHandler);
     };
 
     const abortHandler = () => {
+      aborted = true;
       proc.kill("SIGTERM");
       setTimeout(() => { if (!proc.killed) proc.kill("SIGKILL"); }, 2000);
+      cleanup();
     };
 
     if (opts.signal) {
@@ -478,23 +485,25 @@ export class Tomato {
       }
 
       if (opts.signal?.aborted) {
+        aborted = true;
         proc.kill("SIGTERM");
         setTimeout(() => { if (!proc.killed) proc.kill("SIGKILL"); }, 2000);
-        return;
+        throw new DOMException("Aborted", "AbortError");
       }
     }
 
     const exitCode = await new Promise<number>((res) => proc.on("close", res));
     cleanup();
 
+    if (aborted) throw new DOMException("Aborted", "AbortError");
+
     if (exitCode !== 0 && !state.content) {
       if (useResume && opts.sessionId) {
         // Resume failed — session likely doesn't exist, retry with --session-id
-        yield* this.runStreamOnce(opts, false);
+        return yield* this.runStreamOnce(opts, false);
       } else {
         throw new Error(`claude failed: ${stderr.trim() || `exit code ${exitCode}`}`);
       }
-      return;
     }
 
     return {
