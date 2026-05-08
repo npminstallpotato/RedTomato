@@ -21,7 +21,7 @@ A programmatic TypeScript wrapper around the [Claude Code](https://claude.ai/cod
 ## Installation
 
 ```bash
-npm install
+npm install @npminstallpotato/redtomato@0.1.0
 ```
 
 ## Usage
