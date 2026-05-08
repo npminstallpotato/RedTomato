@@ -36,7 +36,7 @@ npx tsx src/index.ts "Count to 3" --stream           # stream test
 npx tsc --noEmit
 
 # Build
-npx tsc
+npm run build
 ```
 
 ---
@@ -100,7 +100,7 @@ Handles three event types from `stream-json` output:
 - Standard library → internal modules (no third-party runtime imports)
 
 ### Commit Conventions
-- Conventional commits: `type(scope): message`
+- Conventional commits: `type(scope): message` (one line only)
 - Types: `feat`, `fix`, `chore`, `refactor`, `test`, `docs`, `perf`
 
 ---
@@ -134,7 +134,7 @@ RedTomato/
 ```json
 {
   "defaultModel": "sonnet",
-  "defaultEffort": "medium",
+  "defaultEffort": "max",
   "permissionMode": "auto",
   "projectDir": "model"
 }
