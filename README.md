@@ -26,23 +26,10 @@ npm install
 
 ## Usage
 
-### CLI
-
-```bash
-# Single prompt
-npx tsx src/index.ts "Your prompt here"
-
-# With options
-npx tsx src/index.ts "Write a poem" --model opus --effort max
-
-# Streaming output
-npx tsx src/index.ts "Count to 10" --stream
-```
-
 ### Programmatic API
 
 ```typescript
-import { claude, claudeSync, claudeStream, ClaudeSession } from "redtomato-claude-wrapper";
+import { claude, claudeSync, claudeStream, ClaudeSession } from "@potato/redtomato";
 
 // Async
 const resp = await claude("What is the capital of France?");

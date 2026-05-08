@@ -1,6 +1,7 @@
 {
   "name": "@potato/redtomato",
   "version": "0.1.0",
+  "description": "Programmatic TypeScript wrapper around the Claude Code CLI — call Claude via functions, not the TUI",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -14,6 +15,25 @@
     "README.md",
     "LICENSE"
   ],
+  "keywords": [
+    "claude",
+    "claude-code",
+    "anthropic",
+    "wrapper",
+    "typescript"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/npminstallpotato/RedTomato.git"
+  },
+  "homepage": "https://github.com/npminstallpotato/RedTomato#readme",
+  "bugs": {
+    "url": "https://github.com/npminstallpotato/RedTomato/issues"
+  },
+  "author": "npminstallpotato",
+  "engines": {
+    "node": ">=20"
+  },
   "publishConfig": {
     "access": "public"
   },
