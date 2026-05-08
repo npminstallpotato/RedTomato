@@ -109,7 +109,8 @@
   1. `new Tomato().ask({ prompt: "hi", maxBudgetUsd: 0.5, sync: true })`.
 - **Expected:** Subprocess args include `--max-budget-usd 0.5`.
 
-### TC-ARGS-6: Passes `--session-id` when specified
+### TC-ARGS-6: Passes `--session-id` on first call with sessionId
+- **Description:** The first call with a given sessionId uses `--session-id` to create the session.
 - **Steps:**
   1. `new Tomato().ask({ prompt: "hi", sessionId: "abc-123", sync: true })`.
 - **Expected:** Subprocess args include `--session-id abc-123`.
@@ -139,6 +140,14 @@
   1. `const t = new Tomato({ model: "opus" })`.
   2. `t.ask({ prompt: "hi", model: "sonnet", sync: true })`.
 - **Expected:** Subprocess args include `--model sonnet` (not `opus`).
+
+### TC-ARGS-11: Auto-resumes on subsequent calls with same sessionId
+- **Description:** The library tries `--resume` first; on session calls, the first call creates (--session-id) and the second resumes.
+- **Steps:**
+  1. `const t = new Tomato()`.
+  2. `t.ask({ prompt: "first", sessionId: "abc-123", sync: true })`.
+  3. `t.ask({ prompt: "second", sessionId: "abc-123", sync: true })`.
+- **Expected:** Both calls succeed. Session is created on first call, resumed on second.
 
 ---
 
@@ -360,21 +369,21 @@
 
 ---
 
-## Module: `ask()` multi-turn (using `sessionId` + `resume`)
+## Module: `ask()` multi-turn
 
-### TC-SESSION-1: sessionId and resume continue a conversation
-- **Description:** Pass `sessionId` on the first call and `resume: true` on subsequent calls to continue the conversation.
+### TC-SESSION-1: sessionId auto-resumes on subsequent calls
+- **Description:** Pass `sessionId` on the first call; the library auto-detects and resumes on subsequent calls with the same ID.
 - **Steps:**
   1. `const sid = crypto.randomUUID()`.
   2. `await new Tomato().ask({ prompt: "My favorite color is blue.", sessionId: sid })`.
-  3. `const r = await new Tomato().ask({ prompt: "What is my favorite color? Reply in one word.", sessionId: sid, resume: true })`.
+  3. `const r = await new Tomato().ask({ prompt: "What is my favorite color? Reply in one word.", sessionId: sid })`.
 - **Expected:** `r.content` includes `"blue"` or `"Blue"`.
 
-### TC-SESSION-2: stream: true with session and resume
+### TC-SESSION-2: stream: true with session and auto-resume
 - **Steps:**
   1. `const sid = crypto.randomUUID()`.
   2. Collect chunks from `new Tomato().ask({ prompt: "Count to 3", sessionId: sid, stream: true })`.
-  3. Collect chunks from `new Tomato().ask({ prompt: "Count to 5", sessionId: sid, resume: true, stream: true })`.
+  3. Collect chunks from `new Tomato().ask({ prompt: "Count to 5", sessionId: sid, stream: true })`.
 - **Expected:** Chunks are yielded incrementally; final concatenation equals the complete text.
 
 ### TC-SESSION-3: Per-call args override
@@ -537,11 +546,11 @@ These tests require the `claude` CLI to be installed and authenticated.
   1. Collect all chunks from `new Tomato().ask({ prompt: "Reply with exactly: OK", stream: true })`.
 - **Expected:** Concatenated chunks contain `"OK"`. The generator's return value has `exitCode: 0`.
 
-### TC-INT-4: Multi-turn session
+### TC-INT-4: Multi-turn session with auto-resume
 - **Steps:**
   1. `const sid = crypto.randomUUID()`.
   2. `await new Tomato().ask({ prompt: "My favorite color is orange.", sessionId: sid })`.
-  3. `await new Tomato().ask({ prompt: "What is my favorite color? Reply in one word.", sessionId: sid, resume: true })`.
+  3. `await new Tomato().ask({ prompt: "What is my favorite color? Reply in one word.", sessionId: sid })`.
 - **Expected:** Second response is `"orange"` or `"Orange"`.
 
 ### TC-INT-5: Class defaults apply

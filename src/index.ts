@@ -24,8 +24,6 @@ export interface ClaudeOptions {
   sync?: boolean;
   stream?: boolean;
   sessionId?: string;
-  /** Resume an existing session (uses --resume instead of --session-id) */
-  resume?: boolean;
   model?: string;
   effort?: "low" | "medium" | "high" | "xhigh" | "max";
   permissionMode?: string;
@@ -272,7 +270,7 @@ export class Tomato {
 
   // ─── CLI arg builder ──────────────────────────────────────
 
-  private buildArgs(opts: ClaudeOptions): string[] {
+  private buildArgs(opts: ClaudeOptions, resume = true): string[] {
     const cli: string[] = [];
 
     cli.push("-p", opts.prompt, "--output-format", "stream-json");
@@ -290,7 +288,7 @@ export class Tomato {
     if (budget !== undefined) cli.push("--max-budget-usd", String(budget));
 
     if (opts.sessionId) {
-      cli.push(opts.resume ? "--resume" : "--session-id", opts.sessionId);
+      cli.push(resume ? "--resume" : "--session-id", opts.sessionId);
     }
 
     // stream-json requires --verbose
@@ -308,18 +306,22 @@ export class Tomato {
     return resolve(rootDir, opts.projectDir || this.config.projectDir);
   }
 
-  private prepareExecution(opts: ClaudeOptions) {
+  private prepareExecution(opts: ClaudeOptions, resume = true) {
     const rootDir = resolve(process.cwd());
     const modelDir = this.getModelDir(rootDir, opts);
     const claudeBin = findClaude();
-    const cliArgs = this.buildArgs(opts);
+    const cliArgs = this.buildArgs(opts, resume);
     return { modelDir, claudeBin, cliArgs };
   }
 
   // ─── Run functions ────────────────────────────────────────
 
   private runAsync(opts: ClaudeOptions): Promise<ClaudeResponse> {
-    const { modelDir, claudeBin, cliArgs } = this.prepareExecution(opts);
+    return this.runAsyncOnce(opts, true);
+  }
+
+  private runAsyncOnce(opts: ClaudeOptions, useResume: boolean): Promise<ClaudeResponse> {
+    const { modelDir, claudeBin, cliArgs } = this.prepareExecution(opts, useResume);
     const sessionId = opts.sessionId || randomUUID();
 
     ensureModelDir(modelDir);
@@ -369,8 +371,13 @@ export class Tomato {
         cleanup();
 
         if (exitCode !== 0 && !state.content) {
-          const msg = stderr.trim() || `exit code ${exitCode}`;
-          reject(new Error(`claude failed: ${msg}`));
+          if (useResume && opts.sessionId) {
+            // Resume failed — session likely doesn't exist, retry with --session-id
+            this.runAsyncOnce(opts, false).then(resolvePromise, reject);
+          } else {
+            const msg = stderr.trim() || `exit code ${exitCode}`;
+            reject(new Error(`claude failed: ${msg}`));
+          }
           return;
         }
 
@@ -386,7 +393,11 @@ export class Tomato {
   }
 
   private runSync(opts: ClaudeOptions): ClaudeResponse {
-    const { modelDir, claudeBin, cliArgs } = this.prepareExecution(opts);
+    return this.runSyncOnce(opts, true);
+  }
+
+  private runSyncOnce(opts: ClaudeOptions, useResume: boolean): ClaudeResponse {
+    const { modelDir, claudeBin, cliArgs } = this.prepareExecution(opts, useResume);
     const sessionId = opts.sessionId || randomUUID();
 
     ensureModelDir(modelDir);
@@ -399,6 +410,10 @@ export class Tomato {
     const state = parseStreamOutput(result.stdout || "");
 
     if ((result.status ?? 1) !== 0 && !state.content) {
+      if (useResume && opts.sessionId) {
+        // Resume failed — session likely doesn't exist, retry with --session-id
+        return this.runSyncOnce(opts, false);
+      }
       throw new Error(`claude failed: ${(result.stderr || "").trim() || `exit code ${result.status}`}`);
     }
 
@@ -412,7 +427,11 @@ export class Tomato {
   }
 
   private async *runStream(opts: ClaudeOptions): AsyncGenerator<string, ClaudeResponse | void, void> {
-    const { modelDir, claudeBin, cliArgs } = this.prepareExecution(opts);
+    yield* this.runStreamOnce(opts, true);
+  }
+
+  private async *runStreamOnce(opts: ClaudeOptions, useResume: boolean): AsyncGenerator<string, ClaudeResponse | void, void> {
+    const { modelDir, claudeBin, cliArgs } = this.prepareExecution(opts, useResume);
     const sessionId = opts.sessionId || randomUUID();
 
     ensureModelDir(modelDir);
@@ -469,7 +488,13 @@ export class Tomato {
     cleanup();
 
     if (exitCode !== 0 && !state.content) {
-      throw new Error(`claude failed: ${stderr.trim() || `exit code ${exitCode}`}`);
+      if (useResume && opts.sessionId) {
+        // Resume failed — session likely doesn't exist, retry with --session-id
+        yield* this.runStreamOnce(opts, false);
+      } else {
+        throw new Error(`claude failed: ${stderr.trim() || `exit code ${exitCode}`}`);
+      }
+      return;
     }
 
     return {

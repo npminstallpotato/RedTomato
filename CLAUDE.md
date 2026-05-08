@@ -74,7 +74,7 @@ Handles three event types from `stream-json` output:
 
 ### Multi-turn sessions
 
-Pass `sessionId` (any string, typically a UUID) on the first call. Pass the same `sessionId` with `resume: true` on subsequent calls to continue the conversation.
+Pass `sessionId` (any string, typically a UUID) on the first call. Pass the same `sessionId` on subsequent calls to automatically resume the conversation.
 
 ---
 
@@ -122,7 +122,8 @@ RedTomato/
 │       └── testing-code/
 │           └── SKILL.md    # Testing skill
 ├── CLAUDE.md               # This file
-├── README.md
+├── DOC.md                  # Full API reference
+├── README.md               # Quick-start overview
 ├── test.md                 # Test specification
 ├── package.json
 └── tsconfig.json
