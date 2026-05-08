@@ -15,6 +15,8 @@ A programmatic TypeScript wrapper around the [Claude Code](https://claude.ai/cod
 - [Claude Code](https://claude.ai/code) installed and authenticated (`claude` on PATH)
 - Node.js 20+
 
+> **Note:** This package is **ESM-only**. It requires `"type": "module"` in your `package.json` or `.mjs` extension. It cannot be used with `require()`.
+
 ## Installation
 
 ```bash
@@ -164,7 +166,7 @@ Pass a `sessionId` on the first call. Pass the same `sessionId` on subsequent ca
 
 ```typescript
 const tomato = new Tomato();
-const sid = crypto.randomUUID();
+const sid = globalThis.crypto.randomUUID();
 
 await tomato.ask({ prompt: "My favorite color is teal.", sessionId: sid });
 const resp = await tomato.ask({ prompt: "What is my favorite color?", sessionId: sid });

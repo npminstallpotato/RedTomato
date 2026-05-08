@@ -1,4 +1,4 @@
-import { spawn, spawnSync, execSync } from "child_process";
+import { spawn, spawnSync } from "child_process";
 import { randomUUID } from "crypto";
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { resolve, join, basename } from "path";
@@ -53,16 +53,24 @@ const TOMATO_DEFAULTS = {
 
 // ─── Utilities ─────────────────────────────────────────────────
 
+let _claudeBin: string | undefined;
+
 function findClaude(): string {
+  if (_claudeBin) return _claudeBin;
   try {
-    return execSync("which claude", { encoding: "utf-8" }).trim();
+    const result = spawnSync("which", ["claude"], { encoding: "utf-8" });
+    if (result.status === 0 && result.stdout?.trim()) {
+      _claudeBin = result.stdout.trim();
+      return _claudeBin;
+    }
   } catch {
-    throw new Error(
-      "claude CLI not found.\n" +
-      "Install it: https://claude.ai/code\n" +
-      "Or run: npx @anthropic-ai/claude-code install"
-    );
+    // fall through
   }
+  throw new Error(
+    "claude CLI not found.\n" +
+    "Install it: https://claude.ai/code\n" +
+    "Or run: npx @anthropic-ai/claude-code install"
+  );
 }
 
 function ensureModelDir(modelDir: string): void {
@@ -88,16 +96,16 @@ interface StreamState {
   toolMeta: Map<number, { name: string }>;
 }
 
-function processLine(line: string, state: StreamState): boolean /* stopped */ {
+function processLine(line: string, state: StreamState): void {
   let obj: Record<string, unknown>;
   try {
     obj = JSON.parse(line);
   } catch {
-    return false;
+    return;
   }
 
   const type = obj.type as string | undefined;
-  if (!type) return false;
+  if (!type) return;
 
   switch (type) {
     // ── Assistant message: capture tool_use blocks only (text comes from stream or result event) ──
@@ -144,8 +152,6 @@ function processLine(line: string, state: StreamState): boolean /* stopped */ {
       break;
     }
   }
-
-  return false;
 }
 
 function handleStreamEvent(ev: Record<string, unknown>, state: StreamState): void {
@@ -376,7 +382,7 @@ export class Tomato {
         if (exitCode !== 0 && !state.content) {
           if (useResume && opts.sessionId) {
             // Resume failed — session likely doesn't exist, retry with --session-id
-            this.runAsyncOnce(opts, false).then(resolvePromise, reject);
+            this.runAsyncOnce({ ...opts, signal: undefined }, false).then(resolvePromise, reject);
           } else {
             const msg = stderr.trim() || `exit code ${exitCode}`;
             reject(new Error(`claude failed: ${msg}`));
@@ -500,7 +506,7 @@ export class Tomato {
     if (exitCode !== 0 && !state.content) {
       if (useResume && opts.sessionId) {
         // Resume failed — session likely doesn't exist, retry with --session-id
-        return yield* this.runStreamOnce(opts, false);
+        return yield* this.runStreamOnce({ ...opts, signal: undefined }, false);
       } else {
         throw new Error(`claude failed: ${stderr.trim() || `exit code ${exitCode}`}`);
       }
@@ -510,7 +516,7 @@ export class Tomato {
       content: state.content,
       toolCalls: state.toolCalls,
       usage: state.usage,
-      exitCode,
+      exitCode: exitCode ?? -1,
       sessionId,
     };
   }
