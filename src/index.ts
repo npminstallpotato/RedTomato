@@ -23,7 +23,6 @@ export interface ClaudeArgs {
   model?: string;
   effort?: "low" | "medium" | "high" | "xhigh" | "max";
   permissionMode?: string;
-  allowedTools?: string[];
   maxBudgetUsd?: number;
   /** Relative path from project root — defaults to "model" */
   projectDir?: string;
@@ -77,7 +76,7 @@ function ensureModelDir(modelDir: string): void {
   if (!existsSync(mdPath)) {
     writeFileSync(
       mdPath,
-      `# ${modelDir.split("/").pop() || "model"}\n\nManaged by RedPotato Claude wrapper.\n`
+      `# ${modelDir.split("/").pop() || "model"}\n\nManaged by RedTomato Claude wrapper.\n`
     );
   }
 }
