@@ -1,6 +1,6 @@
 # RedTomato
 
-Programmatic TypeScript wrapper around the Claude Code CLI. Provides `claude()`, `claudeStream()`, `claudeSync()`, and `ClaudeSession` for using Claude Code via function calls instead of the TUI.
+Programmatic TypeScript wrapper around the Claude Code CLI. Provides a `Tomato` class with an `ask()` method for sync, async, streaming, and multi-turn sessions.
 
 ---
 
@@ -47,14 +47,18 @@ npm run build
 
 | File | Purpose |
 |------|---------|
-| `src/index.ts` | Single source file — exports `claude`, `claudeStream`, `claudeSync`, `ClaudeSession`, types |
-| `settings.json` | Default config (model, effort, permission mode, project dir) |
+| `src/index.ts` | Single source file — exports `Tomato`, `TomatoConfig`, `ClaudeOptions`, `ClaudeResponse`, `ToolUse` |
 | `test.md` | Complete test case specification |
 | `model/` | CWD for spawned `claude` subprocesses |
 
 ### How it works
 
-Each function call spawns `claude -p "prompt" --output-format stream-json` via `child_process`. The subprocess runs with CWD set to `model/`, which means:
+`Tomato.ask()` dispatches to one of three internal runners based on options:
+- **`sync: true`** → `spawnSync` (blocking)
+- **`stream: true`** → `spawn` + async generator (yields text deltas)
+- **default** → `spawn` + Promise (async)
+
+Each runner calls `claude -p "prompt" --output-format stream-json` via `child_process`. The subprocess runs with CWD set to `model/`, which means:
 - Claude Code auto-loads `model/CLAUDE.md` for project context
 - It uses the local machine's auth, settings, MCP servers
 - All tools (Read, Edit, Bash, etc.) are available
@@ -70,7 +74,7 @@ Handles three event types from `stream-json` output:
 
 ### Multi-turn sessions
 
-`ClaudeSession` generates a UUID and uses `--session-id` for the first message (creates session) and `--resume` for subsequent messages (continues conversation).
+Pass `sessionId` (any string, typically a UUID) on the first call. Pass the same `sessionId` with `resume: true` on subsequent calls to continue the conversation.
 
 ---
 
@@ -110,14 +114,13 @@ Handles three event types from `stream-json` output:
 ```
 RedTomato/
 ├── src/
-│   └── index.ts           # Wrapper — all public API + CLI entry
+│   └── index.ts           # Wrapper — Tomato class + types
 ├── model/
 │   └── CLAUDE.md           # Claude Code working directory context
 ├── .claude/
 │   └── skills/
 │       └── testing-code/
 │           └── SKILL.md    # Testing skill
-├── settings.json           # Default config
 ├── CLAUDE.md               # This file
 ├── README.md
 ├── test.md                 # Test specification
@@ -125,19 +128,3 @@ RedTomato/
 └── tsconfig.json
 ```
 
----
-
-## Configuration
-
-`settings.json` at project root:
-
-```json
-{
-  "defaultModel": "sonnet",
-  "defaultEffort": "max",
-  "permissionMode": "auto",
-  "projectDir": "model"
-}
-```
-
-All fields are optional — values passed to `claude()` / `claudeSync()` / `claudeStream()` override config defaults.

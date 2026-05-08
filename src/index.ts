@@ -1,6 +1,6 @@
 import { spawn, spawnSync, execSync } from "child_process";
 import { randomUUID } from "crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { resolve, join } from "path";
 import { createInterface } from "readline";
 
@@ -19,41 +19,41 @@ export interface ClaudeResponse {
   sessionId: string;
 }
 
-export interface ClaudeArgs {
+export interface ClaudeOptions {
+  prompt: string;
+  sync?: boolean;
+  stream?: boolean;
+  sessionId?: string;
+  /** Resume an existing session (uses --resume instead of --session-id) */
+  resume?: boolean;
   model?: string;
   effort?: "low" | "medium" | "high" | "xhigh" | "max";
   permissionMode?: string;
   maxBudgetUsd?: number;
   /** Relative path from project root — defaults to "model" */
   projectDir?: string;
-  sessionId?: string;
-  /** Resume an existing session (uses --resume instead of --session-id) */
-  resume?: boolean;
   signal?: AbortSignal;
 }
 
-interface WrapperConfig {
-  defaultModel?: string;
-  defaultEffort?: string;
-  maxBudgetUsd?: number;
+export interface TomatoConfig {
+  model?: string;
+  effort?: "low" | "medium" | "high" | "xhigh" | "max";
   permissionMode?: string;
+  maxBudgetUsd?: number;
+  /** Relative path from project root — defaults to "model" */
   projectDir?: string;
 }
 
-// ─── Constants ──────────────────────────────────────────────────
+// ─── Defaults ──────────────────────────────────────────────────
 
-const CONFIG_FILE = "settings.json";
-const DEFAULT_PROJECT_DIR = "model";
+const TOMATO_DEFAULTS = {
+  model: "sonnet",
+  effort: "max",
+  permissionMode: "auto",
+  projectDir: "model",
+} as const;
 
-// ─── Config ─────────────────────────────────────────────────────
-
-function loadConfig(rootDir: string): WrapperConfig {
-  try {
-    return JSON.parse(readFileSync(join(rootDir, CONFIG_FILE), "utf-8"));
-  } catch {
-    return {};
-  }
-}
+// ─── Utilities ─────────────────────────────────────────────────
 
 function findClaude(): string {
   try {
@@ -67,8 +67,6 @@ function findClaude(): string {
   }
 }
 
-// ─── Model directory scaffolding ────────────────────────────────
-
 function ensureModelDir(modelDir: string): void {
   if (existsSync(modelDir)) return;
   mkdirSync(modelDir, { recursive: true });
@@ -79,53 +77,6 @@ function ensureModelDir(modelDir: string): void {
       `# ${modelDir.split("/").pop() || "model"}\n\nManaged by RedTomato Claude wrapper.\n`
     );
   }
-}
-
-// ─── CLI arg builder ────────────────────────────────────────────
-
-function buildArgs(
-  prompt: string,
-  options: { stream?: boolean },
-  args: ClaudeArgs,
-  config: WrapperConfig,
-): string[] {
-  const cli: string[] = [];
-
-  cli.push("-p", prompt, "--output-format", "stream-json");
-
-  const model = args.model || config.defaultModel;
-  if (model) cli.push("--model", model);
-
-  const effort = args.effort || config.defaultEffort;
-  if (effort) cli.push("--effort", effort);
-
-  const perm = args.permissionMode || config.permissionMode;
-  if (perm) cli.push("--permission-mode", perm);
-
-  const budget = args.maxBudgetUsd ?? config.maxBudgetUsd;
-  if (budget !== undefined) cli.push("--max-budget-usd", String(budget));
-
-  if (args.sessionId) {
-    if (args.resume) {
-      cli.push("--resume", args.sessionId);
-    } else {
-      cli.push("--session-id", args.sessionId);
-    }
-  }
-
-  // stream-json requires --verbose
-  cli.push("--verbose");
-
-  // For streaming, include partial messages so we get text deltas
-  if (options.stream) {
-    cli.push("--include-partial-messages");
-  }
-
-  return cli;
-}
-
-function getModelDir(rootDir: string, args: ClaudeArgs, config: WrapperConfig): string {
-  return resolve(rootDir, args.projectDir || config.projectDir || DEFAULT_PROJECT_DIR);
 }
 
 // ─── Stream JSON parser ─────────────────────────────────────────
@@ -270,8 +221,6 @@ function createState(): StreamState {
   return { content: "", toolCalls: [], toolInputBufs: new Map(), toolMeta: new Map() };
 }
 
-// ─── Parsers for output formats ─────────────────────────────────
-
 function parseOutput(stdout: string, state: StreamState): void {
   for (const line of stdout.split("\n")) {
     const t = line.trim();
@@ -286,23 +235,188 @@ function parseStreamOutput(stdout: string): StreamState {
   return state;
 }
 
-// ─── Run (async, returns full response) ─────────────────────────
+// ─── Tomato class ──────────────────────────────────────────────
 
-export async function claude(
-  prompt: string,
-  args: ClaudeArgs = {},
-): Promise<ClaudeResponse> {
-  const rootDir = resolve(process.cwd());
-  const config = loadConfig(rootDir);
-  const modelDir = getModelDir(rootDir, args, config);
-  const sessionId = args.sessionId || randomUUID();
+export class Tomato {
+  private config: {
+    model: string;
+    effort: string;
+    permissionMode: string;
+    maxBudgetUsd?: number;
+    projectDir: string;
+  };
 
-  ensureModelDir(modelDir);
+  constructor(config?: TomatoConfig) {
+    this.config = {
+      model: config?.model ?? TOMATO_DEFAULTS.model,
+      effort: config?.effort ?? TOMATO_DEFAULTS.effort,
+      permissionMode: config?.permissionMode ?? TOMATO_DEFAULTS.permissionMode,
+      maxBudgetUsd: config?.maxBudgetUsd,
+      projectDir: config?.projectDir ?? TOMATO_DEFAULTS.projectDir,
+    };
+  }
 
-  const claudeBin = findClaude();
-  const cliArgs = buildArgs(prompt, {}, args, config);
+  // ─── Public API (3 overloads) ─────────────────────────────
 
-  return new Promise((resolvePromise, reject) => {
+  ask(opts: ClaudeOptions & { sync: true }): ClaudeResponse;
+  ask(opts: ClaudeOptions & { stream: true }): AsyncGenerator<string, ClaudeResponse | void>;
+  ask(opts: ClaudeOptions): Promise<ClaudeResponse>;
+  ask(opts: ClaudeOptions): any {
+    const effectiveSessionId = opts.sessionId || randomUUID();
+    const effectiveOpts: ClaudeOptions = { ...opts, sessionId: effectiveSessionId };
+
+    if (opts.sync) return this.runSync(effectiveOpts);
+    if (opts.stream) return this.runStream(effectiveOpts);
+    return this.runAsync(effectiveOpts);
+  }
+
+  // ─── CLI arg builder ──────────────────────────────────────
+
+  private buildArgs(opts: ClaudeOptions): string[] {
+    const cli: string[] = [];
+
+    cli.push("-p", opts.prompt, "--output-format", "stream-json");
+
+    const model = opts.model || this.config.model;
+    if (model) cli.push("--model", model);
+
+    const effort = opts.effort || this.config.effort;
+    if (effort) cli.push("--effort", effort);
+
+    const perm = opts.permissionMode || this.config.permissionMode;
+    if (perm) cli.push("--permission-mode", perm);
+
+    const budget = opts.maxBudgetUsd ?? this.config.maxBudgetUsd;
+    if (budget !== undefined) cli.push("--max-budget-usd", String(budget));
+
+    if (opts.sessionId) {
+      cli.push(opts.resume ? "--resume" : "--session-id", opts.sessionId);
+    }
+
+    // stream-json requires --verbose
+    cli.push("--verbose");
+
+    // For streaming, include partial messages so we get text deltas
+    if (opts.stream) {
+      cli.push("--include-partial-messages");
+    }
+
+    return cli;
+  }
+
+  private getModelDir(rootDir: string, opts: ClaudeOptions): string {
+    return resolve(rootDir, opts.projectDir || this.config.projectDir);
+  }
+
+  private prepareExecution(opts: ClaudeOptions) {
+    const rootDir = resolve(process.cwd());
+    const modelDir = this.getModelDir(rootDir, opts);
+    const claudeBin = findClaude();
+    const cliArgs = this.buildArgs(opts);
+    return { modelDir, claudeBin, cliArgs };
+  }
+
+  // ─── Run functions ────────────────────────────────────────
+
+  private runAsync(opts: ClaudeOptions): Promise<ClaudeResponse> {
+    const { modelDir, claudeBin, cliArgs } = this.prepareExecution(opts);
+    const sessionId = opts.sessionId || randomUUID();
+
+    ensureModelDir(modelDir);
+
+    return new Promise((resolvePromise, reject) => {
+      const proc = spawn(claudeBin, cliArgs, {
+        cwd: modelDir,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+
+      const state = createState();
+      let stderr = "";
+
+      proc.stdout!.on("data", (data: Buffer) => {
+        const text = data.toString("utf-8");
+        for (const line of text.split("\n")) {
+          const t = line.trim();
+          if (t) processLine(t, state);
+        }
+      });
+
+      proc.stderr!.on("data", (data: Buffer) => {
+        stderr += data.toString("utf-8");
+      });
+
+      const cleanup = () => {
+        if (opts.signal) opts.signal.removeEventListener("abort", abortHandler);
+      };
+
+      const abortHandler = () => {
+        proc.kill("SIGTERM");
+        setTimeout(() => { if (!proc.killed) proc.kill("SIGKILL"); }, 2000);
+        cleanup();
+        reject(new DOMException("Aborted", "AbortError"));
+      };
+
+      if (opts.signal) {
+        opts.signal.addEventListener("abort", abortHandler, { once: true });
+      }
+
+      proc.on("error", (err) => {
+        cleanup();
+        reject(err);
+      });
+
+      proc.on("close", (exitCode) => {
+        cleanup();
+
+        if (exitCode !== 0 && !state.content) {
+          const msg = stderr.trim() || `exit code ${exitCode}`;
+          reject(new Error(`claude failed: ${msg}`));
+          return;
+        }
+
+        resolvePromise({
+          content: state.content,
+          toolCalls: state.toolCalls,
+          usage: state.usage,
+          exitCode: exitCode ?? -1,
+          sessionId,
+        });
+      });
+    });
+  }
+
+  private runSync(opts: ClaudeOptions): ClaudeResponse {
+    const { modelDir, claudeBin, cliArgs } = this.prepareExecution(opts);
+    const sessionId = opts.sessionId || randomUUID();
+
+    ensureModelDir(modelDir);
+
+    const result = spawnSync(claudeBin, cliArgs, {
+      cwd: modelDir,
+      encoding: "utf-8",
+    });
+
+    const state = parseStreamOutput(result.stdout || "");
+
+    if ((result.status ?? 1) !== 0 && !state.content) {
+      throw new Error(`claude failed: ${(result.stderr || "").trim() || `exit code ${result.status}`}`);
+    }
+
+    return {
+      content: state.content,
+      toolCalls: state.toolCalls,
+      usage: state.usage,
+      exitCode: result.status ?? -1,
+      sessionId,
+    };
+  }
+
+  private async *runStream(opts: ClaudeOptions): AsyncGenerator<string, ClaudeResponse | void, void> {
+    const { modelDir, claudeBin, cliArgs } = this.prepareExecution(opts);
+    const sessionId = opts.sessionId || randomUUID();
+
+    ensureModelDir(modelDir);
+
     const proc = spawn(claudeBin, cliArgs, {
       cwd: modelDir,
       stdio: ["ignore", "pipe", "pipe"],
@@ -311,216 +425,59 @@ export async function claude(
     const state = createState();
     let stderr = "";
 
-    proc.stdout!.on("data", (data: Buffer) => {
-      const text = data.toString("utf-8");
-      for (const line of text.split("\n")) {
-        const t = line.trim();
-        if (t) processLine(t, state);
-      }
-    });
-
     proc.stderr!.on("data", (data: Buffer) => {
       stderr += data.toString("utf-8");
     });
 
+    const rl = createInterface({ input: proc.stdout!, crlfDelay: Infinity });
+
     const cleanup = () => {
-      if (args.signal) args.signal.removeEventListener("abort", abortHandler);
+      if (opts.signal) opts.signal.removeEventListener("abort", abortHandler);
     };
 
     const abortHandler = () => {
       proc.kill("SIGTERM");
       setTimeout(() => { if (!proc.killed) proc.kill("SIGKILL"); }, 2000);
-      cleanup();
-      reject(new DOMException("Aborted", "AbortError"));
     };
 
-    if (args.signal) {
-      args.signal.addEventListener("abort", abortHandler, { once: true });
+    if (opts.signal) {
+      opts.signal.addEventListener("abort", abortHandler, { once: true });
     }
 
-    proc.on("error", (err) => {
-      cleanup();
-      reject(err);
-    });
+    let lastLen = 0;
 
-    proc.on("close", (exitCode) => {
-      cleanup();
+    for await (const raw of rl) {
+      const line = raw.trim();
+      if (!line) continue;
 
-      if (exitCode !== 0 && !state.content) {
-        const msg = stderr.trim() || `exit code ${exitCode}`;
-        reject(new Error(`claude failed: ${msg}`));
-        return;
+      processLine(line, state);
+
+      // Yield incremental text
+      if (state.content.length > lastLen) {
+        yield state.content.slice(lastLen);
+        lastLen = state.content.length;
       }
 
-      resolvePromise({
-        content: state.content,
-        toolCalls: state.toolCalls,
-        usage: state.usage,
-        exitCode: exitCode ?? -1,
-        sessionId,
-      });
-    });
-  });
-}
-
-// ─── Run (streaming) ────────────────────────────────────────────
-
-export async function* claudeStream(
-  prompt: string,
-  args: ClaudeArgs = {},
-): AsyncGenerator<string, ClaudeResponse | void, unknown> {
-  const rootDir = resolve(process.cwd());
-  const config = loadConfig(rootDir);
-  const modelDir = getModelDir(rootDir, args, config);
-  const sessionId = args.sessionId || randomUUID();
-
-  ensureModelDir(modelDir);
-
-  const claudeBin = findClaude();
-  const cliArgs = buildArgs(prompt, { stream: true }, args, config);
-
-  const proc = spawn(claudeBin, cliArgs, {
-    cwd: modelDir,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-
-  const state = createState();
-  let stderr = "";
-
-  proc.stderr!.on("data", (data: Buffer) => {
-    stderr += data.toString("utf-8");
-  });
-
-  const rl = createInterface({ input: proc.stdout!, crlfDelay: Infinity });
-
-  const cleanup = () => {
-    if (args.signal) args.signal.removeEventListener("abort", abortHandler);
-  };
-
-  const abortHandler = () => {
-    proc.kill("SIGTERM");
-    setTimeout(() => { if (!proc.killed) proc.kill("SIGKILL"); }, 2000);
-  };
-
-  if (args.signal) {
-    args.signal.addEventListener("abort", abortHandler, { once: true });
-  }
-
-  let lastLen = 0;
-
-  for await (const raw of rl) {
-    const line = raw.trim();
-    if (!line) continue;
-
-    processLine(line, state);
-
-    // Yield incremental text
-    if (state.content.length > lastLen) {
-      yield state.content.slice(lastLen);
-      lastLen = state.content.length;
+      if (opts.signal?.aborted) {
+        proc.kill("SIGTERM");
+        setTimeout(() => { if (!proc.killed) proc.kill("SIGKILL"); }, 2000);
+        return;
+      }
     }
 
-    if (args.signal?.aborted) {
-      proc.kill("SIGTERM");
-      setTimeout(() => { if (!proc.killed) proc.kill("SIGKILL"); }, 2000);
-      return;
+    const exitCode = await new Promise<number>((res) => proc.on("close", res));
+    cleanup();
+
+    if (exitCode !== 0 && !state.content) {
+      throw new Error(`claude failed: ${stderr.trim() || `exit code ${exitCode}`}`);
     }
-  }
 
-  const exitCode = await new Promise<number>((res) => proc.on("close", res));
-  cleanup();
-
-  if (exitCode !== 0 && !state.content) {
-    throw new Error(`claude failed: ${stderr.trim() || `exit code ${exitCode}`}`);
-  }
-
-  return {
-    content: state.content,
-    toolCalls: state.toolCalls,
-    usage: state.usage,
-    exitCode,
-    sessionId,
-  };
-}
-
-// ─── Run (sync, blocking) ───────────────────────────────────────
-
-export function claudeSync(
-  prompt: string,
-  args: ClaudeArgs = {},
-): ClaudeResponse {
-  const rootDir = resolve(process.cwd());
-  const config = loadConfig(rootDir);
-  const modelDir = getModelDir(rootDir, args, config);
-  const sessionId = args.sessionId || randomUUID();
-
-  ensureModelDir(modelDir);
-
-  const claudeBin = findClaude();
-  const cliArgs = buildArgs(prompt, {}, args, config);
-
-  const result = spawnSync(claudeBin, cliArgs, {
-    cwd: modelDir,
-    encoding: "utf-8",
-  });
-
-  const state = parseStreamOutput(result.stdout || "");
-
-  if ((result.status ?? 1) !== 0 && !state.content) {
-    throw new Error(`claude failed: ${(result.stderr || "").trim() || `exit code ${result.status}`}`);
-  }
-
-  return {
-    content: state.content,
-    toolCalls: state.toolCalls,
-    usage: state.usage,
-    exitCode: result.status ?? -1,
-    sessionId,
-  };
-}
-
-// ─── Session (multi-turn) ──────────────────────────────────────
-
-export class ClaudeSession {
-  public readonly sessionId: string;
-  private rootDir: string;
-  private config: WrapperConfig;
-  private defaultArgs: ClaudeArgs;
-  private started: boolean = false;
-
-  constructor(rootDir: string = process.cwd(), defaultArgs: ClaudeArgs = {}) {
-    this.sessionId = randomUUID();
-    this.rootDir = resolve(rootDir);
-    this.config = loadConfig(this.rootDir);
-    this.defaultArgs = defaultArgs;
-
-    ensureModelDir(getModelDir(this.rootDir, this.defaultArgs, this.config));
-  }
-
-  /** Send a message within this session (continues conversation). */
-  async message(prompt: string, args: ClaudeArgs = {}): Promise<ClaudeResponse> {
-    const merged: ClaudeArgs = {
-      ...this.defaultArgs,
-      ...args,
-      sessionId: this.sessionId,
-      resume: this.started ? true : undefined,
+    return {
+      content: state.content,
+      toolCalls: state.toolCalls,
+      usage: state.usage,
+      exitCode,
+      sessionId,
     };
-    this.started = true;
-    return claude(prompt, merged);
-  }
-
-  /** Send a message and stream the response within this session. */
-  messageStream(
-    prompt: string,
-    args: ClaudeArgs = {},
-  ): AsyncGenerator<string, ClaudeResponse | void, unknown> {
-    const merged: ClaudeArgs = {
-      ...this.defaultArgs,
-      ...args,
-      sessionId: this.sessionId,
-      resume: this.started ? true : undefined,
-    };
-    this.started = true;
-    return claudeStream(prompt, merged);
   }
 }

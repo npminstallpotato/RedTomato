@@ -1,13 +1,10 @@
 # RedTomato
 
-A programmatic TypeScript wrapper around the [Claude Code](https://claude.ai/code) CLI. Call Claude Code via functions instead of the TUI.
+A programmatic TypeScript wrapper around the [Claude Code](https://claude.ai/code) CLI. Call Claude Code via a class with sensible defaults.
 
 ## Features
 
-- **`claude()`** — async prompt → structured response with content, tool calls, usage
-- **`claudeSync()`** — synchronous (blocking) variant
-- **`claudeStream()`** — async generator yielding incremental text chunks
-- **`ClaudeSession`** — multi-turn conversations with automatic session management
+- **One method** — `tomato.ask()` with options for sync, async, streaming, multi-turn
 - Uses your local Claude Code auth and config — no separate API key needed
 - Respects `CLAUDE.md` in the working directory
 - Supports model, effort, permission mode, and budget overrides
@@ -26,21 +23,31 @@ npm install @npminstallpotato/redtomato
 
 ## Usage
 
-### Programmatic API
+### Async (default)
 
 ```typescript
-import { claude, claudeSync, claudeStream, ClaudeSession } from "@npminstallpotato/redtomato";
+import { Tomato } from "@npminstallpotato/redtomato";
 
-// Async
-const resp = await claude("What is the capital of France?");
+const tomato = new Tomato();
+const resp = await tomato.ask({ prompt: "What is the capital of France?" });
 console.log(resp.content);
+```
 
-// Sync (blocking)
-const resp = claudeSync("Hello");
+### Sync (blocking)
+
+```typescript
+import { Tomato } from "@npminstallpotato/redtomato";
+
+const resp = new Tomato().ask({ prompt: "Hello", sync: true });
 console.log(resp.content);
+```
 
-// Streaming
-for await (const chunk of claudeStream("Tell me a story")) {
+### Streaming
+
+```typescript
+import { Tomato } from "@npminstallpotato/redtomato";
+
+for await (const chunk of new Tomato().ask({ prompt: "Tell me a story", stream: true })) {
   process.stdout.write(chunk);
 }
 ```
@@ -48,34 +55,48 @@ for await (const chunk of claudeStream("Tell me a story")) {
 ### Multi-turn sessions
 
 ```typescript
-const session = new ClaudeSession();
-await session.message("My favorite color is teal.");
-const resp = await session.message("What is my favorite color?");
-// resp.content remembers context from previous messages
+import { Tomato } from "@npminstallpotato/redtomato";
+
+const tomato = new Tomato();
+const sid = crypto.randomUUID();
+await tomato.ask({ prompt: "My favorite color is teal.", sessionId: sid });
+const resp = await tomato.ask({ prompt: "What is my favorite color?", sessionId: sid, resume: true });
+console.log(resp.content); // "teal"
 ```
 
-### Configuration via `settings.json`
+### Configuration
 
-```json
-{
-  "defaultModel": "sonnet",
-  "defaultEffort": "max",
-  "permissionMode": "auto",
-  "projectDir": "model"
-}
+Create a `Tomato` instance with default settings:
+
+```typescript
+const tomato = new Tomato(); // uses default model "sonnet", effort "max", etc.
 ```
 
-Values passed directly to `claude()` override config file defaults.
+Override defaults per-instance:
+
+```typescript
+const tomato = new Tomato({ model: "opus", effort: "high" });
+```
+
+Per-call options override instance config:
+
+```typescript
+const resp = await tomato.ask({ prompt: "Hello", model: "sonnet" }); // overrides instance model
+```
 
 ### Available options
 
 | Option | CLI flag | Description |
 |--------|----------|-------------|
+| `prompt` | — | The prompt to send (required) |
+| `sync` | — | If true, blocks synchronously instead of returning a Promise |
+| `stream` | — | If true, returns an async generator yielding text chunks |
+| `sessionId` | — | UUID for session identity |
+| `resume` | — | Resume an existing session (use with `sessionId`) |
 | `model` | `--model` | Model name (sonnet, opus) |
 | `effort` | `--effort` | Thinking effort: low, medium, high, xhigh, max |
 | `permissionMode` | `--permission-mode` | Permission mode: auto, default, bypassPermissions |
 | `maxBudgetUsd` | `--max-budget-usd` | Max API spend in USD |
-| `sessionId` | — | UUID for session identity |
 | `projectDir` | — | Claude Code working directory (default: `model/`) |
 | `signal` | — | AbortSignal for cancellation |
 
@@ -100,7 +121,7 @@ Under the hood, each call spawns `claude -p "prompt" --output-format stream-json
 ```
 RedTomato/
 ├── src/
-│   └── index.ts           # Wrapper — all exports + CLI entry
+│   └── index.ts           # Wrapper — Tomato class + types
 ├── model/                 # Claude Code working directory
 │   └── CLAUDE.md
 ├── .claude/
@@ -108,7 +129,6 @@ RedTomato/
 │       └── testing-code/
 │           └── SKILL.md   # Testing skill
 ├── test.md                # Full test case specification
-├── settings.json          # Wrapper configuration
 ├── CLAUDE.md              # Project context for Claude Code
 ├── package.json
 └── tsconfig.json
