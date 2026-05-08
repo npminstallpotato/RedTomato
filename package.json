@@ -1,6 +1,6 @@
 {
   "name": "@npminstallpotato/redtomato",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Programmatic TypeScript wrapper around the Claude Code CLI — call Claude via functions, not the TUI",
   "license": "MIT",
   "type": "module",
