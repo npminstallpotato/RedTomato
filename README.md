@@ -29,7 +29,7 @@ npm install
 ### Programmatic API
 
 ```typescript
-import { claude, claudeSync, claudeStream, ClaudeSession } from "@potato/redtomato";
+import { claude, claudeSync, claudeStream, ClaudeSession } from "@npminstallpotato/redtomato";
 
 // Async
 const resp = await claude("What is the capital of France?");
